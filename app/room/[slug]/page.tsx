@@ -5,10 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import { browserClient } from "@/lib/supabase/client";
 import ShareLink from "@/components/ShareLink";
 import { fal } from "@fal-ai/client";
-import { createHandDetector, createGestureRecognizer } from "@/lib/hand/mediapipe";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Conversation } from "@elevenlabs/client";
-import { Hand, Mic } from "lucide-react";
+import { Mic, Pencil, Eraser, MousePointer } from "lucide-react";
 
 type PeerMeta = { name: string; avatar: string; color: string };
 type Cursor = { x: number; y: number; t: number };
@@ -28,41 +27,16 @@ export default function RoomPage() {
   const [connId, setConnId] = useState<string>("");
   const [shareUrl, setShareUrl] = useState<string>("");
   const channelRef = useRef<RealtimeChannel | null>(null);
-  const handEnabledRef = useRef<boolean>(false);
-  const gesturesEnabledRef = useRef<boolean>(false);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const detectorRef = useRef<{ detectForVideo: (video: HTMLVideoElement, timestamp: number) => { landmarks?: Array<Array<{ x: number; y: number; z: number }>> } | null; close?: () => void } | null>(null);
-  const gestureDetectorRef = useRef<{ recognizeForVideo: (video: HTMLVideoElement, timestamp: number) => { gestures?: Array<Array<{ categoryName: string; score: number }>> } | null; close?: () => void } | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const lastDetectTsRef = useRef<number>(0);
-  const originalConsoleInfoRef = useRef<typeof console.info | null>(null);
-  const originalConsoleLogRef = useRef<typeof console.log | null>(null);
-  const originalConsoleErrorRef = useRef<typeof console.error | null>(null);
-  const gestureByKeyRef = useRef<Record<string, string>>({});
-  const currentGestureEmojiRef = useRef<string | null>(null);
-  const toolByKeyRef = useRef<Record<string, { tool: 'cursor' | 'pen' | 'eraser'; color: string }>>({});
-  const gestureStrokeActiveRef = useRef<boolean>(false);
-  // Selection via Victory gesture
+  const toolByKeyRef = useRef<Record<string, { tool: 'cursor' | 'pen' | 'eraser' | 'select'; color: string }>>({});
   const selectionActiveRef = useRef<boolean>(false);
   const selectionStartRef = useRef<Point | null>(null);
   const selectionRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const selectionByKeyRef = useRef<Record<string, { x: number; y: number; w: number; h: number } | null>>({});
   const [showGenerate, setShowGenerate] = useState(false);
   const [generating, setGenerating] = useState(false);
-
+  
   // Configure fal client to use proxy
   fal.config({ proxyUrl: "/api/fal/proxy" });
-  const gestureMap: Record<string, string> = {
-    Thumb_Up: "👍",
-    Thumb_Down: "👎",
-    Open_Palm: "✋",
-    Pointing_Up: "☝️",
-    Victory: "✌️",
-    ILoveYou: "🤟",
-    Closed_Fist: "✊",
-    OK: "👌",
-    Call_Me: "🤙",
-  };
   const strokesRef = useRef<Stroke[]>([]);
   const imagesRef = useRef<ImageItem[]>([]);
   const currentStrokeRef = useRef<Stroke | null>(null);
@@ -71,13 +45,11 @@ export default function RoomPage() {
   const [tool, setTool] = useState<"cursor" | "pen" | "image" | "eraser" | "select">("cursor");
   const brushWidthRef = useRef<number>(3);
   const activeStrokeIndexByIdRef = useRef<Record<string, number>>({});
-  const [handAndGesturesEnabled, setHandAndGesturesEnabled] = useState(false);
   
   // ElevenLabs state
   const conversationRef = useRef<Conversation | null>(null);
   const elevenLabsEnabledRef = useRef<boolean>(false);
   const elevenLabsInitializingRef = useRef<boolean>(false);
-  const lastThumbGestureRef = useRef<number>(0);
   const [elevenLabsActive, setElevenLabsActive] = useState(false);
 
   // Color name to hex mapping
@@ -192,7 +164,7 @@ export default function RoomPage() {
             
             if (!selectionRectRef.current) {
               console.log('[🎨 IMAGE GEN] ❌ No selection area');
-              return 'Please select an area on the canvas first using the Victory gesture or Select Area tool';
+              return 'Please select an area on the canvas first using the Select Area tool.';
             }
             console.log('[🎨 IMAGE GEN] ✓ Selection rect:', selectionRectRef.current);
             
@@ -335,6 +307,34 @@ export default function RoomPage() {
     return key ? colorFromString(key) : "#3b82f6";
   }, [self, connId]);
 
+  const broadcastToolState = (nextTool: 'cursor' | 'pen' | 'eraser' | 'select') => {
+    if (!connId) return;
+    const currentColor = toolByKeyRef.current[connId]?.color || color;
+    toolByKeyRef.current[connId] = { tool: nextTool, color: currentColor };
+    channelRef.current?.send({ type: 'broadcast', event: 'tool', payload: { key: connId, tool: nextTool, color: currentColor } });
+  };
+
+  const setActiveTool = (nextTool: 'cursor' | 'pen' | 'eraser' | 'select') => {
+    setTool(nextTool);
+    broadcastToolState(nextTool);
+  };
+
+  const handleDrawingToolToggle = (target: 'pen' | 'eraser') => {
+    if (tool === target) {
+      setActiveTool('cursor');
+    } else {
+      setActiveTool(target);
+    }
+  };
+
+  const handleSelectToggle = () => {
+    if (tool === 'select') {
+      setActiveTool('cursor');
+    } else {
+      setActiveTool('select');
+    }
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !self || !connId) return;
@@ -409,11 +409,10 @@ export default function RoomPage() {
       const isIdle = now - c.t > 3000;
       ctx.globalAlpha = isIdle ? 0.55 : 1;
       
-      // Get tool and gesture info
+      // Get tool info
       const toolInfo = toolByKeyRef.current[id];
       const currentTool = toolInfo?.tool || 'cursor';
       const brushColor = toolInfo?.color || colorFromString(id);
-      const gestureEmoji = gestureByKeyRef.current[id];
       
       ctx.save();
       
@@ -448,8 +447,7 @@ export default function RoomPage() {
         ctx.save();
         ctx.font = "14px sans-serif";
         
-        // Measure text with emoji if present
-        const displayText = gestureEmoji ? `${gestureEmoji} ${meta.name}` : meta.name;
+        const displayText = meta.name;
         const textWidth = ctx.measureText(displayText).width;
         
         const px = c.x + 14;
@@ -536,6 +534,7 @@ export default function RoomPage() {
     }, 16);
 
     const onDown = (e: PointerEvent) => {
+      if (!(e.target instanceof HTMLCanvasElement)) return;
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -545,6 +544,7 @@ export default function RoomPage() {
         const stroke: Stroke = { id: crypto.randomUUID(), points: [{ x, y }], color: currentColor, width: currentWidth, userId: self?.id || connId };
         currentStrokeRef.current = stroke;
         strokesRef.current = [...strokesRef.current, stroke];
+        channel.send({ type: 'broadcast', event: 'stroke-start', payload: stroke });
       } else if (tool === "select") {
         selectionActiveRef.current = true;
         selectionStartRef.current = { x, y };
@@ -630,12 +630,8 @@ export default function RoomPage() {
       if (idx >= 0) imagesRef.current[idx] = { ...imagesRef.current[idx], x, y };
     });
 
-    channel.on("broadcast", { event: "gesture" }, ({ payload }) => {
-      const { key, emoji } = payload as { key: string; emoji: string };
-      gestureByKeyRef.current[key] = emoji;
-    });
     channel.on("broadcast", { event: "tool" }, ({ payload }) => {
-      const { key, tool, color } = payload as { key: string; tool: 'cursor' | 'pen' | 'eraser'; color: string };
+      const { key, tool, color } = payload as { key: string; tool: 'cursor' | 'pen' | 'eraser' | 'select'; color: string };
       toolByKeyRef.current[key] = { tool, color };
     });
     channel.on("broadcast", { event: "selection-start" }, ({ payload }) => {
@@ -675,7 +671,6 @@ export default function RoomPage() {
     <main className="min-h-screen">
       <div className="fixed inset-0">
         <canvas ref={canvasRef} className="w-full h-full block cursor-none" />
-        <video ref={videoRef} className="hidden" playsInline muted />
       </div>
       {showGenerate && selectionRectRef.current && (
         <div className="fixed z-20" style={{ left: selectionRectRef.current.x + selectionRectRef.current.w + 8, top: selectionRectRef.current.y }}>
@@ -685,7 +680,12 @@ export default function RoomPage() {
               if (!selectionRectRef.current) return;
               try {
                 setGenerating(true);
-                const prompt = 'Using the selected child-like sketch as reference, generate an abstract painting in a contemporary style. Preserve the composition and gesture; amplify shapes and rhythm; use a rich, vibrant color palette; painterly brush strokes; textured canvas look; high quality; avoid photorealism; keep abstraction and child-like spontaneity.';
+                const prompt = `
+                Analyze the provided child-like sketch and accurately infer its shapes, layout, and visual intention.
+                Create a pixar style image inspired by this sketch. 
+                Avoid realism entirely; keep it abstract, dynamic, and artful.
+                High quality, gallery-level output.
+                `;
                 // Crop selection from the canvas (respect DPR), with solid background to avoid transparent->black previews
                 const rect = selectionRectRef.current;
                 const canvas = canvasRef.current!;
@@ -758,54 +758,14 @@ export default function RoomPage() {
         </div>
       )}
       
-      {/* Gesture Guide - Bottom Right */}
-      <div className="fixed bottom-4 right-4 z-10 max-w-xs">
-        <div className="rounded-xl border border-gray-200 bg-white/95 backdrop-blur shadow-lg">
-          <div className="px-4 py-3 border-b border-gray-200">
-            <h3 className="font-semibold text-sm flex items-center gap-2">
-              <Hand className="w-4 h-4" />
-              Gesture Controls
-            </h3>
+      {elevenLabsActive && (
+        <div className="fixed bottom-4 right-4 z-10">
+          <div className="flex items-center gap-2 rounded-full bg-white/95 backdrop-blur px-4 py-2 border border-red-200 shadow">
+            <Mic className="w-4 h-4 text-red-600" />
+            <span className="text-sm font-medium text-gray-800">Voice assistant is listening</span>
           </div>
-          <div className="p-3 space-y-2 text-xs">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">☝️</span>
-              <span className="text-gray-700">Point to draw</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg">✋</span>
-              <span className="text-gray-700">Palm to erase</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg">✌️</span>
-              <span className="text-gray-700">Victory to select</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg">👍</span>
-              <span className="text-gray-700">Thumbs up for voice</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg">👎</span>
-              <span className="text-gray-700">Thumbs down to stop</span>
-            </div>
-          </div>
-          {handAndGesturesEnabled && (
-            <div className="px-3 pb-3">
-              <div className="text-xs text-green-700 bg-green-50 rounded-md px-2 py-1.5 border border-green-200">
-                ✓ Magic Mode Active
-              </div>
-            </div>
-          )}
-          {elevenLabsActive && (
-            <div className="px-3 pb-3">
-              <div className="text-xs text-red-700 bg-red-50 rounded-md px-2 py-1.5 border border-red-200 flex items-center gap-1.5">
-                <Mic className="w-3 h-3" />
-                Voice Assistant Active
-              </div>
-            </div>
-          )}
         </div>
-      </div>
+      )}
 
       <div className="fixed top-3 left-1/2 -translate-x-1/2 z-10 w-[min(720px,92vw)]">
         <div className="rounded-xl border border-gray-200 bg-white/90 backdrop-blur px-4 py-2 shadow-sm">
@@ -814,356 +774,51 @@ export default function RoomPage() {
               <ShareLink url={shareUrl} />
             </div>
             <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1.5">
+                <button
+                  onClick={handleSelectToggle}
+                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium transition ${
+                    tool === 'select' ? 'bg-black text-white' : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <MousePointer className="w-4 h-4" />
+                  Select
+                </button>
+                <button
+                  onClick={() => handleDrawingToolToggle('pen')}
+                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium transition ${
+                    tool === 'pen' ? 'bg-black text-white' : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Pencil className="w-4 h-4" />
+                  Pencil
+                </button>
+                <button
+                  onClick={() => handleDrawingToolToggle('eraser')}
+                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium transition ${
+                    tool === 'eraser' ? 'bg-black text-white' : 'text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <Eraser className="w-4 h-4" />
+                  Eraser
+                </button>
+              </div>
               <button
-                onClick={async () => {
-                  // Unified toggle: both Hand + Gestures
-                  if (handEnabledRef.current || gesturesEnabledRef.current) {
-                    handEnabledRef.current = false;
-                    gesturesEnabledRef.current = false;
-                    setHandAndGesturesEnabled(false);
-                    // Stop ElevenLabs if active
-                    if (elevenLabsEnabledRef.current) {
-                      stopElevenLabs();
-                    }
-                    if (streamRef.current) {
-                      streamRef.current.getTracks().forEach((t) => t.stop());
-                      streamRef.current = null;
-                    }
-                    if (detectorRef.current && typeof detectorRef.current.close === 'function') {
-                      try { detectorRef.current.close(); } catch {}
-                    }
-                    detectorRef.current = null;
-                    if (gestureDetectorRef.current && typeof gestureDetectorRef.current.close === 'function') {
-                      try { gestureDetectorRef.current.close(); } catch {}
-                    }
-                    gestureDetectorRef.current = null;
-                    if (originalConsoleInfoRef.current) { console.info = originalConsoleInfoRef.current; originalConsoleInfoRef.current = null; }
-                    if (originalConsoleLogRef.current) { console.log = originalConsoleLogRef.current; originalConsoleLogRef.current = null; }
-                    return;
-                  }
-                  try {
-                    if (!originalConsoleInfoRef.current) {
-                      originalConsoleInfoRef.current = console.info;
-                      console.info = (...args: unknown[]) => {
-                        const first = args?.[0];
-                        if (typeof first === 'string' && first.includes('TensorFlow Lite XNNPACK delegate')) return;
-                        return originalConsoleInfoRef.current?.apply(console, args);
-                      };
-                    }
-                    if (!originalConsoleLogRef.current) {
-                      originalConsoleLogRef.current = console.log;
-                      console.log = (...args: unknown[]) => {
-                        const first = args?.[0];
-                        if (typeof first === 'string' && first.includes('TensorFlow Lite XNNPACK delegate')) return;
-                        return originalConsoleLogRef.current?.apply(console, args);
-                      };
-                    }
-                    // also suppress console.error for the same noisy Mediapipe info line
-                    if (!originalConsoleErrorRef.current) {
-                      originalConsoleErrorRef.current = console.error;
-                      console.error = (...args: unknown[]) => {
-                        const first = args?.[0];
-                        if (typeof first === 'string' && first.includes('TensorFlow Lite XNNPACK delegate')) return;
-                        return originalConsoleErrorRef.current?.apply(console, args);
-                      };
-                    }
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-                    const video = videoRef.current!;
-                    video.srcObject = stream;
-                    await video.play();
-                    streamRef.current = stream;
-                    detectorRef.current = await createHandDetector();
-                    gestureDetectorRef.current = await createGestureRecognizer();
-                    handEnabledRef.current = true;
-                    gesturesEnabledRef.current = true;
-                    setHandAndGesturesEnabled(true);
-                    const rafLoop = () => {
-                      if (!handEnabledRef.current) return;
-                      const canvas = canvasRef.current;
-                      const channel = channelRef.current;
-                      if (!canvas || !channel) return;
-                      if (
-                        video.paused ||
-                        video.ended ||
-                        video.readyState < 2 ||
-                        video.videoWidth === 0 ||
-                        video.videoHeight === 0 ||
-                        !detectorRef.current?.detectForVideo
-                      ) {
-                        requestAnimationFrame(rafLoop);
-                        return;
-                      }
-                      const rect = canvas.getBoundingClientRect();
-                      let ts = performance.now();
-                      if (ts <= lastDetectTsRef.current) ts = lastDetectTsRef.current + 1;
-                      lastDetectTsRef.current = ts;
-                      try {
-                        const handsRes = detectorRef.current.detectForVideo(video, ts);
-                        const tip = handsRes?.landmarks?.[0]?.[8];
-                        if (tip) {
-                          const x = (1 - tip.x) * rect.width;
-                          const y = tip.y * rect.height;
-                          cursors.current[connId] = { x, y, t: ts };
-                          channel.send({ type: "broadcast", event: "cursor", payload: { key: connId, x, y } });
-                        }
-                        if (gestureDetectorRef.current?.recognizeForVideo) {
-                          const gRes = gestureDetectorRef.current.recognizeForVideo(video, ts);
-                          const top = gRes?.gestures?.[0]?.[0];
-                          const name = top?.categoryName as string | undefined;
-                          const emoji = name ? gestureMap[name] : undefined;
-                          if (emoji && emoji !== currentGestureEmojiRef.current) {
-                            currentGestureEmojiRef.current = emoji;
-                            channel.send({ type: "broadcast", event: "gesture", payload: { key: connId, emoji } });
-                            gestureByKeyRef.current[connId] = emoji;
-                          }
-                          
-                          // ElevenLabs activation via Thumb gestures (with debouncing)
-                          if (name === 'Thumb_Up' && !elevenLabsEnabledRef.current) {
-                            const now = performance.now();
-                            if (now - lastThumbGestureRef.current > 1000) {
-                              lastThumbGestureRef.current = now;
-                              startElevenLabs();
-                            }
-                          } else if (name === 'Thumb_Down' && elevenLabsEnabledRef.current) {
-                            const now = performance.now();
-                            if (now - lastThumbGestureRef.current > 1000) {
-                              lastThumbGestureRef.current = now;
-                              stopElevenLabs();
-                            }
-                          }
-                          
-                          // Gesture-to-tool mapping (broadcast tool state)
-                          if (!currentStrokeRef.current && name) {
-                            const currentColor = toolByKeyRef.current[connId]?.color || color;
-                            if (name === 'Pointing_Up' && tool !== 'pen') {
-                              setTool('pen');
-                              toolByKeyRef.current[connId] = { tool: 'pen', color: currentColor };
-                              channel.send({ type: 'broadcast', event: 'tool', payload: { key: connId, tool: 'pen', color: currentColor } });
-                            } else if (name === 'Open_Palm' && tool !== 'eraser') {
-                              setTool('eraser');
-                              toolByKeyRef.current[connId] = { tool: 'eraser', color: currentColor };
-                              channel.send({ type: 'broadcast', event: 'tool', payload: { key: connId, tool: 'eraser', color: currentColor } });
-                            }
-                          }
-
-                          // Hand-driven drawing/erasing
-                          if (tip && name === 'Pointing_Up') {
-                            const hx = (1 - tip.x) * rect.width;
-                            const hy = tip.y * rect.height;
-                            if (!gestureStrokeActiveRef.current && !currentStrokeRef.current) {
-                              const currentColor = toolByKeyRef.current[connId]?.color || color;
-                              const currentWidth = brushWidthRef.current;
-                              const stroke: Stroke = { id: crypto.randomUUID(), points: [{ x: hx, y: hy }], color: currentColor, width: currentWidth, userId: self?.id || connId };
-                              currentStrokeRef.current = stroke;
-                              strokesRef.current = [...strokesRef.current, stroke];
-                              channel.send({ type: 'broadcast', event: 'stroke-start', payload: stroke });
-                              gestureStrokeActiveRef.current = true;
-                            } else if (currentStrokeRef.current) {
-                              currentStrokeRef.current.points.push({ x: hx, y: hy });
-                              channel.send({ type: 'broadcast', event: 'stroke-append', payload: { id: currentStrokeRef.current.id, point: { x: hx, y: hy } } });
-                            }
-                          } else if (gestureStrokeActiveRef.current && currentStrokeRef.current) {
-                            channel.send({ type: 'broadcast', event: 'stroke-end', payload: { id: currentStrokeRef.current.id } });
-                            currentStrokeRef.current = null;
-                            gestureStrokeActiveRef.current = false;
-                          }
-
-                          if (tip && name === 'Open_Palm') {
-                            const hx = (1 - tip.x) * rect.width;
-                            const hy = tip.y * rect.height;
-                            // gesture-based erase stroke (destination-out)
-                            if (!currentStrokeRef.current || currentStrokeRef.current.mode !== 'erase') {
-                              const stroke: Stroke = { id: crypto.randomUUID(), points: [{ x: hx, y: hy }], color: '#000', width: 48, userId: self?.id || connId, mode: 'erase' };
-                              currentStrokeRef.current = stroke;
-                              strokesRef.current = [...strokesRef.current, stroke];
-                              channel.send({ type: 'broadcast', event: 'stroke-start', payload: stroke });
-                            } else {
-                              currentStrokeRef.current.points.push({ x: hx, y: hy });
-                              channel.send({ type: 'broadcast', event: 'stroke-append', payload: { id: currentStrokeRef.current.id, point: { x: hx, y: hy } } });
-                            }
-                          } else if (currentStrokeRef.current && currentStrokeRef.current.mode === 'erase') {
-                            channel.send({ type: 'broadcast', event: 'stroke-end', payload: { id: currentStrokeRef.current.id } });
-                            currentStrokeRef.current = null;
-                          }
-                          // Selection (Victory)
-                          if (tip && name === 'Victory') {
-                            const hx = (1 - tip.x) * rect.width;
-                            const hy = tip.y * rect.height;
-                            if (!selectionActiveRef.current) {
-                              selectionActiveRef.current = true;
-                              selectionStartRef.current = { x: hx, y: hy };
-                              selectionRectRef.current = { x: hx, y: hy, w: 0, h: 0 };
-                              channel.send({ type: 'broadcast', event: 'selection-start', payload: { key: connId, x: hx, y: hy } });
-                            } else if (selectionStartRef.current) {
-                              const sx = selectionStartRef.current.x;
-                              const sy = selectionStartRef.current.y;
-                              const rx = Math.min(sx, hx);
-                              const ry = Math.min(sy, hy);
-                              const rw = Math.abs(hx - sx);
-                              const rh = Math.abs(hy - sy);
-                              selectionRectRef.current = { x: rx, y: ry, w: rw, h: rh };
-                              selectionByKeyRef.current[connId] = selectionRectRef.current;
-                              channel.send({ type: 'broadcast', event: 'selection-update', payload: { key: connId, x: rx, y: ry, w: rw, h: rh } });
-                            }
-                          } else if (selectionActiveRef.current) {
-                            selectionActiveRef.current = false;
-                            selectionStartRef.current = null;
-                            channel.send({ type: 'broadcast', event: 'selection-end', payload: { key: connId } });
-                            // Show generate button for local selection
-                            if (selectionRectRef.current) setShowGenerate(true);
-                          }
-                        }
-                      } catch {}
-                      requestAnimationFrame(rafLoop);
-                    };
-                    if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) {
-                      const rvc = (video as { requestVideoFrameCallback: (callback: (now: number, metadata: { mediaTime: number }) => void) => void }).requestVideoFrameCallback.bind(video);
-                      const onFrame = (_now: number, meta: { mediaTime?: number }) => {
-                        if (!handEnabledRef.current) return;
-                        const canvas = canvasRef.current;
-                        const channel = channelRef.current;
-                        if (!canvas || !channel) return;
-                        const rect = canvas.getBoundingClientRect();
-                        let ts = Math.max((meta?.mediaTime || 0) * 1000, performance.now());
-                        if (ts <= lastDetectTsRef.current) ts = lastDetectTsRef.current + 1;
-                        lastDetectTsRef.current = ts;
-                        try {
-                          if (!detectorRef.current?.detectForVideo) { rvc(onFrame); return; }
-                          const handsRes = detectorRef.current.detectForVideo(video, ts);
-                          const tip = handsRes?.landmarks?.[0]?.[8];
-                          if (tip) {
-                            const x = (1 - tip.x) * rect.width;
-                            const y = tip.y * rect.height;
-                            cursors.current[connId] = { x, y, t: ts };
-                            channel.send({ type: "broadcast", event: "cursor", payload: { key: connId, x, y } });
-                          }
-                          if (gestureDetectorRef.current?.recognizeForVideo) {
-                            const gRes = gestureDetectorRef.current.recognizeForVideo(video, ts);
-                            const top = gRes?.gestures?.[0]?.[0];
-                            const name = top?.categoryName as string | undefined;
-                            const emoji = name ? gestureMap[name] : undefined;
-                            if (emoji && emoji !== currentGestureEmojiRef.current) {
-                              currentGestureEmojiRef.current = emoji;
-                              channel.send({ type: "broadcast", event: "gesture", payload: { key: connId, emoji } });
-                              gestureByKeyRef.current[connId] = emoji;
-                            }
-                            
-                            // ElevenLabs activation via Thumb gestures (with debouncing)
-                            if (name === 'Thumb_Up' && !elevenLabsEnabledRef.current) {
-                              const now = performance.now();
-                              if (now - lastThumbGestureRef.current > 1000) {
-                                lastThumbGestureRef.current = now;
-                                startElevenLabs();
-                              }
-                            } else if (name === 'Thumb_Down' && elevenLabsEnabledRef.current) {
-                              const now = performance.now();
-                              if (now - lastThumbGestureRef.current > 1000) {
-                                lastThumbGestureRef.current = now;
-                                stopElevenLabs();
-                              }
-                            }
-                            
-                            if (!currentStrokeRef.current && name) {
-                              const currentColor = toolByKeyRef.current[connId]?.color || color;
-                              if (name === 'Pointing_Up' && tool !== 'pen') {
-                                setTool('pen');
-                                toolByKeyRef.current[connId] = { tool: 'pen', color: currentColor };
-                                channel.send({ type: 'broadcast', event: 'tool', payload: { key: connId, tool: 'pen', color: currentColor } });
-                              } else if (name === 'Open_Palm' && tool !== 'eraser') {
-                                setTool('eraser');
-                                toolByKeyRef.current[connId] = { tool: 'eraser', color: currentColor };
-                                channel.send({ type: 'broadcast', event: 'tool', payload: { key: connId, tool: 'eraser', color: currentColor } });
-                              }
-                            }
-
-                            if (tip && name === 'Pointing_Up') {
-                              const hx = (1 - tip.x) * rect.width;
-                              const hy = tip.y * rect.height;
-                              if (!gestureStrokeActiveRef.current && !currentStrokeRef.current) {
-                                const currentColor = toolByKeyRef.current[connId]?.color || color;
-                                const currentWidth = brushWidthRef.current;
-                                const stroke: Stroke = { id: crypto.randomUUID(), points: [{ x: hx, y: hy }], color: currentColor, width: currentWidth, userId: self?.id || connId };
-                                currentStrokeRef.current = stroke;
-                                strokesRef.current = [...strokesRef.current, stroke];
-                                channel.send({ type: 'broadcast', event: 'stroke-start', payload: stroke });
-                                gestureStrokeActiveRef.current = true;
-                              } else if (currentStrokeRef.current) {
-                                currentStrokeRef.current.points.push({ x: hx, y: hy });
-                                channel.send({ type: 'broadcast', event: 'stroke-append', payload: { id: currentStrokeRef.current.id, point: { x: hx, y: hy } } });
-                              }
-                            } else if (gestureStrokeActiveRef.current && currentStrokeRef.current) {
-                              channel.send({ type: 'broadcast', event: 'stroke-end', payload: { id: currentStrokeRef.current.id } });
-                              currentStrokeRef.current = null;
-                              gestureStrokeActiveRef.current = false;
-                            }
-
-                            if (tip && name === 'Open_Palm') {
-                              const hx = (1 - tip.x) * rect.width;
-                              const hy = tip.y * rect.height;
-                              if (!currentStrokeRef.current || currentStrokeRef.current.mode !== 'erase') {
-                                const stroke: Stroke = { id: crypto.randomUUID(), points: [{ x: hx, y: hy }], color: '#000', width: 48, userId: self?.id || connId, mode: 'erase' };
-                                currentStrokeRef.current = stroke;
-                                strokesRef.current = [...strokesRef.current, stroke];
-                                channel.send({ type: 'broadcast', event: 'stroke-start', payload: stroke });
-                              } else {
-                                currentStrokeRef.current.points.push({ x: hx, y: hy });
-                                channel.send({ type: 'broadcast', event: 'stroke-append', payload: { id: currentStrokeRef.current.id, point: { x: hx, y: hy } } });
-                              }
-                            } else if (currentStrokeRef.current && currentStrokeRef.current.mode === 'erase') {
-                              channel.send({ type: 'broadcast', event: 'stroke-end', payload: { id: currentStrokeRef.current.id } });
-                              currentStrokeRef.current = null;
-                            }
-                            if (tip && name === 'Victory') {
-                              const hx = (1 - tip.x) * rect.width;
-                              const hy = tip.y * rect.height;
-                              if (!selectionActiveRef.current) {
-                                selectionActiveRef.current = true;
-                                selectionStartRef.current = { x: hx, y: hy };
-                                selectionRectRef.current = { x: hx, y: hy, w: 0, h: 0 };
-                                channel.send({ type: 'broadcast', event: 'selection-start', payload: { key: connId, x: hx, y: hy } });
-                              } else if (selectionStartRef.current) {
-                                const sx = selectionStartRef.current.x;
-                                const sy = selectionStartRef.current.y;
-                                const rx = Math.min(sx, hx);
-                                const ry = Math.min(sy, hy);
-                                const rw = Math.abs(hx - sx);
-                                const rh = Math.abs(hy - sy);
-                                selectionRectRef.current = { x: rx, y: ry, w: rw, h: rh };
-                                selectionByKeyRef.current[connId] = selectionRectRef.current;
-                                channel.send({ type: 'broadcast', event: 'selection-update', payload: { key: connId, x: rx, y: ry, w: rw, h: rh } });
-                              }
-                            } else if (selectionActiveRef.current) {
-                              selectionActiveRef.current = false;
-                              selectionStartRef.current = null;
-                              channel.send({ type: 'broadcast', event: 'selection-end', payload: { key: connId } });
-                              if (selectionRectRef.current) setShowGenerate(true);
-                            }
-                          }
-                        } catch {}
-                        rvc(onFrame);
-                      };
-                      rvc(onFrame);
-                    } else {
-                      requestAnimationFrame(rafLoop);
-                    }
-                  } catch (e) {
-                    console.warn("Hand control failed:", e);
-                    handEnabledRef.current = false;
+                onClick={() => {
+                  if (elevenLabsActive) {
+                    stopElevenLabs();
+                  } else {
+                    startElevenLabs();
                   }
                 }}
-                className={`p-2.5 rounded-md text-sm border flex items-center justify-center ${handAndGesturesEnabled ? 'bg-black text-white border-black' : 'border-gray-200'}`}
-                title="Magic Mode (Hand Gestures)"
+                className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium border transition ${
+                  elevenLabsActive ? 'bg-red-50 text-red-700 border-red-200' : 'border-gray-200 text-gray-800 hover:bg-gray-100'
+                }`}
+                title="Toggle voice mode"
               >
-                <Hand className="w-5 h-5 mr-2" /> Magic Mode
+                <Mic className={`w-4 h-4 ${elevenLabsActive ? 'text-red-600' : ''}`} />
+                {elevenLabsActive ? 'Voice On' : 'Voice Off'}
               </button>
-              {elevenLabsActive && (
-                <button
-                  className="p-2.5 rounded-md border border-red-300 bg-red-50 flex items-center justify-center"
-                  title="Voice Active"
-                >
-                  <Mic className="w-5 h-5 text-red-600 animate-pulse" />
-                </button>
-              )}
             </div>
           </div>
         </div>

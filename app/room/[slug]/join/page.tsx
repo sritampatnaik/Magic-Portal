@@ -55,52 +55,35 @@ export default function JoinPage() {
           </button>
         </div>
         
-        {/* Hand Gestures Help Section */}
+        {/* Toolbar Tips */}
         <div className="mt-8 pt-6 border-t border-gray-200">
-          <h2 className="text-lg font-semibold mb-4">🪄 Hand Gesture Controls</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Once inside, enable <strong>Magic Mode</strong> to control the canvas with hand gestures:
-          </p>
+          <h2 className="text-lg font-semibold mb-4">🎨 Toolbar Tips</h2>
           <div className="space-y-3">
             <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
-              <span className="text-2xl">☝️</span>
+              <span className="text-2xl">✏️</span>
               <div>
-                <p className="font-medium text-sm">Pointing Up</p>
-                <p className="text-xs text-gray-600">Draw with pen - point and move to create strokes</p>
+                <p className="font-medium text-sm">Pencil & Eraser</p>
+                <p className="text-xs text-gray-600">Use the top toolbar to switch between drawing and erasing. Click a tool again to return to the cursor.</p>
               </div>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
-              <span className="text-2xl">✋</span>
+              <span className="text-2xl">🟦</span>
               <div>
-                <p className="font-medium text-sm">Open Palm</p>
-                <p className="text-xs text-gray-600">Eraser - move your palm to erase drawings</p>
+                <p className="font-medium text-sm">Select Area</p>
+                <p className="text-xs text-gray-600">Choose “Select” to drag a box for AI image generation, then click Generate next to your selection.</p>
               </div>
             </div>
             <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
-              <span className="text-2xl">✌️</span>
+              <span className="text-2xl">🎤</span>
               <div>
-                <p className="font-medium text-sm">Victory / Peace</p>
-                <p className="text-xs text-gray-600">Select area - drag to create selection box for AI generation</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
-              <span className="text-2xl">👍</span>
-              <div>
-                <p className="font-medium text-sm">Thumbs Up</p>
-                <p className="text-xs text-gray-600">Start voice assistant - talk to change colors, brush size, or generate images</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
-              <span className="text-2xl">👎</span>
-              <div>
-                <p className="font-medium text-sm">Thumbs Down</p>
-                <p className="text-xs text-gray-600">Stop voice assistant</p>
+                <p className="font-medium text-sm">Voice Mode</p>
+                <p className="text-xs text-gray-600">Toggle the Voice button to talk hands-free—ask for color changes, brush sizes, or image generation prompts.</p>
               </div>
             </div>
           </div>
           <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-100">
             <p className="text-xs text-blue-800">
-              <strong>💡 Tip:</strong> You can also use your mouse/trackpad with the toolbar buttons for traditional drawing!
+              <strong>💡 Tip:</strong> Everything works great with a mouse or trackpad—no webcam gestures required.
             </p>
           </div>
         </div>

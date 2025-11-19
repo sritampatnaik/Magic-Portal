@@ -1,34 +1,30 @@
 # Magic Canvas
 
-A keyboard-less and mouse-less multiplayer whiteboard that uses webcam gestures and voice control for a fully hands-free collaborative drawing experience.
+Magic Canvas is a collaborative multiplayer whiteboard with AI-powered helpers. Draw with your mouse or trackpad, switch tools from the top toolbar, and toggle the integrated voice assistant whenever you want hands-free commands—no webcams or motion tracking required.
 
 <br/>
 
 ## What I Built
 
-**Magic Canvas** is a real-time collaborative whiteboard that reimagines how we interact with digital canvases. Instead of using a keyboard and mouse, users control the canvas entirely through:
+**Magic Canvas** is a real-time collaborative whiteboard that blends a familiar drawing workflow with playful AI assistance:
 
-- **Hand Gestures** (via webcam): Draw, erase, and select areas using natural hand movements detected by your webcam
+- **Top Toolbar Controls**: Quick-access buttons for Select, Pencil, and Eraser tools with broadcasted state so everyone sees what you're using
 - **Voice Commands**: Change pen colors, adjust brush sizes, and generate AI images using conversational voice control
 - **AI Image Generation**: Select any area on the canvas and generate abstract artwork that seamlessly integrates into your drawing
 
 ### Key Features
 
-1. **Real-time Multiplayer**: Multiple users can join a room and see each other's cursors, drawings, and gestures in real-time
-2. **Gesture Controls**:
-   - ☝️ **Pointing Up**: Activates pen tool and draws
-   - ✋ **Open Palm**: Activates eraser tool
-   - ✌️ **Victory**: Creates a selection area for AI generation
-   - 👍 **Thumbs Up**: Activates voice assistant
-   - 👎 **Thumbs Down**: Deactivates voice assistant
+1. **Real-time Multiplayer**: Multiple users can join a room and see each other's cursors, drawings, and active tools in real-time
+2. **Toolbar Controls**:
+   - **Select**: Drag a region to prep AI generations
+   - **Pencil**: Smooth brush strokes that sync as you draw
+   - **Eraser**: Large, pressure-free erasing with compositing
+   - Click any tool again to pop back to the cursor for moving artwork
 3. **Voice Assistant**: Natural language control for:
    - Changing pen colors ("make the pen blue")
    - Adjusting brush size ("make the brush thicker")
    - Generating images in selected areas ("create an abstract painting here")
-4. **Smart Cursors**: Each user's cursor dynamically shows:
-   - Their username and current gesture emoji
-   - Triangle cursor (colored by current pen color)
-   - Circle cursor (white, when eraser is active)
+4. **Smart Cursors**: Each user's cursor dynamically shows their username, selected color, and whether they're erasing
 5. **Freehand Drawing**: Smooth, real-time drawing with adjustable brush sizes and colors
 6. **AI Image Generation**: Select any canvas area and generate artwork using Fal.ai's image-to-image model
 
@@ -44,14 +40,10 @@ A keyboard-less and mouse-less multiplayer whiteboard that uses webcam gestures 
 
 - **Supabase Realtime** - WebSocket-based real-time presence and broadcasts
   - Presence API for multi-cursor tracking
-  - Broadcasts for drawing strokes, gestures, and tool changes
+  - Broadcasts for drawing strokes, selections, and tool changes
 - **Supabase Storage** - Image hosting for AI-generated artwork
 
 ### AI & ML Services
-
-- **Google MediaPipe** (`@mediapipe/tasks-vision`) - Hand gesture recognition
-  - HandLandmarker for fingertip tracking
-  - GestureRecognizer for detecting 9+ hand gestures
 - **ElevenLabs Conversational AI** (`@elevenlabs/client`) - Voice assistant with custom client tools
   - **Tool Calling**: Custom client tools that execute in the browser
   - `change_pen_color` - Parses natural language color names and updates pen color
@@ -71,11 +63,8 @@ A keyboard-less and mouse-less multiplayer whiteboard that uses webcam gestures 
 
 1. **Create a Room**: Users create a shareable room with a unique URL
 2. **Join with Avatar**: Select an avatar and name to enter the room
-3. **Enable Magic Mode**: Activate hand gesture and voice control
-4. **Draw & Collaborate**:
-   - Use hand gestures to draw and erase
-   - Voice commands to customize colors and brush size
-   - Select areas with the Victory gesture to generate AI artwork
+3. **Pick a Tool**: Use the Select, Pencil, or Eraser buttons in the top toolbar
+4. **Optional Voice Mode**: Toggle the Mic button to issue spoken commands for colors, brush sizes, or AI prompts
 5. **Real-time Sync**: All actions are broadcast to other users in the room via Supabase Realtime
 
 ## How to Set It Up
@@ -83,8 +72,7 @@ A keyboard-less and mouse-less multiplayer whiteboard that uses webcam gestures 
 ### Prerequisites
 
 - Node.js 18+ installed
-- A webcam (for gesture control)
-- A microphone (for voice control)
+- A microphone (only if you plan to use voice control)
 
 ### 1. Clone the Repository
 
@@ -177,34 +165,33 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 1. **Create a Room**: Click "Create Room" on the homepage
 2. **Set Up Your Profile**: Choose an avatar and enter your name
-3. **Enable Magic Mode**: Click the "Magic Mode" button to activate gesture and voice control
-4. **Allow Permissions**: Grant webcam and microphone access when prompted
+3. **Pick Your Tool**: Use the toolbar to switch between Select, Pencil, and Eraser
+4. **Optional Voice Mode**: Toggle the Mic button and grant microphone permission to issue commands
 5. **Start Creating**:
-   - Point up ☝️ to draw
-   - Open palm ✋ to erase
-   - Victory sign ✌️ to select an area
-   - Thumbs up 👍 to activate voice assistant
+   - Click and drag with **Pencil** to draw
+   - Switch to **Eraser** for quick cleanups
+   - Choose **Select** and drag a box, then hit Generate to add AI artwork
    - Say commands like "make the pen red" or "make the brush thicker"
 
 ### Troubleshooting
 
-- **Gestures not working?** Make sure your webcam has good lighting and your hand is clearly visible
 - **Voice not responding?** Check microphone permissions and ensure ElevenLabs agent tools are configured correctly
+- **Selection rectangle missing?** Confirm the Select tool is active before dragging on the canvas
 - **Real-time sync issues?** Verify Supabase Realtime is enabled for your project
 - **Image generation failing?** Check your Fal.ai API key and ensure you have credits
 
 ## Technical Highlights
 
-- **Optimized Real-time Performance**: Throttled cursor movements and debounced gesture detection for smooth 60fps rendering
+- **Optimized Real-time Performance**: Throttled cursor movements and debounced network broadcasts keep the canvas smooth at 60fps
 - **DPR-Aware Canvas**: High-resolution rendering that adapts to device pixel ratios
 - **Streaming Strokes**: In-progress drawing strokes are streamed to peers in real-time, not just on completion
-- **Client-Side MediaPipe**: Webcam processing happens entirely in the browser for privacy and low latency
+- **Shared Tool State**: Toolbar selections are broadcast so everyone sees who is selecting, drawing, or erasing
 - **Voice Tool Integration**: ElevenLabs client tools with custom handlers for pen color, brush size, and AI generation
-- **Mirrored Fingertip Coordinates**: Natural left/right movement with front-facing cameras
+- **Selection Snapshot Pipeline**: Crops the selected region, normalizes it to 512×512, uploads it, and pipes it through Fal.ai for image-to-image generation
 
 ## Demo
 
-Try it live or watch the demo video to see gesture-controlled collaborative drawing in action!
+Try it live or watch the demo video to see collaborative drawing, AI selections, and voice commands in action!
 
 ---
 

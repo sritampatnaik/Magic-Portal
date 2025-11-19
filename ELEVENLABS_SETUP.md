@@ -140,7 +140,7 @@ Keep responses under 2 sentences. Focus on action and creativity!
 {
   "type": "client",
   "name": "generate_image",
-  "description": "Generate an AI image based on a selected area of the canvas and a text prompt. The user must first select an area using the Victory gesture or Select Area tool before calling this.",
+  "description": "Generate an AI image based on a selected area of the canvas and a text prompt. The user must first create a selection using the Select Area tool before calling this.",
   "expects_response": true,
   "response_timeout_secs": 30,
   "parameters": [
@@ -163,14 +163,14 @@ Keep responses under 2 sentences. Focus on action and creativity!
 
 ## Usage
 
-1. Enable hand/gesture tracking by clicking "Magic Mode" button
-2. Show a **Thumbs Up** 👍 gesture to activate voice control
+1. Click the **Voice** button in the top toolbar to activate the assistant
+2. Grant microphone permission when prompted
 3. Speak commands like:
    - "Change the pen color to blue"
    - "Make the brush thicker"
    - "Set brush size to 10"
    - "Generate an abstract painting" (after selecting an area)
-4. Show a **Thumbs Down** 👎 gesture to deactivate voice control
+4. Click the Voice button again to deactivate the assistant
 
 ## Features
 
@@ -178,7 +178,7 @@ Keep responses under 2 sentences. Focus on action and creativity!
 - **Brush Size Control**: Voice agent can adjust brush thickness using numbers (1-20) or relative terms
 - **Dynamic Image Generation**: Voice agent can generate images with custom prompts based on selected canvas areas
 - **Real-time Feedback**: Microphone icon shows when voice agent is active (red indicator)
-- **Automatic Integration**: Works seamlessly with existing gesture controls
+- **Automatic Integration**: Works seamlessly with the Select/Pencil/Eraser toolbar controls
 
 ## Supported Colors
 
@@ -194,6 +194,6 @@ Color variations: dark/light prefixes (e.g., "dark red", "light blue")
 
 ## Troubleshooting
 
-- **Voice not activating**: Make sure webcam/hand tracking is enabled first
+- **Voice not activating**: Make sure you've toggled the Voice button in the toolbar and granted microphone access
 - **Agent not responding**: Check that your ELEVENLABS_API_KEY and ELEVENLABS_AGENT_ID are correctly set
 - **Tool calls failing**: Verify your agent has the correct tool configurations in the ElevenLabs dashboard
