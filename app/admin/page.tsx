@@ -116,7 +116,7 @@ export default function AdminPage() {
                   Generate Button Prompt
                 </label>
                 <p className="text-xs text-gray-400 mb-2">
-                  This prompt is used when clicking the "Generate" button manually.
+                  This prompt is used when clicking the &quot;Generate&quot; button manually.
                 </p>
                 <textarea
                   id="prompt"
@@ -133,7 +133,7 @@ export default function AdminPage() {
                   Voice Tool Template
                 </label>
                 <p className="text-xs text-gray-400 mb-2">
-                  Template used for voice-generated images. Use {"{prompt}"} as a placeholder for the user's spoken prompt.
+                  Template used for voice-generated images. Use {"{prompt}"} as a placeholder for the user&apos;s spoken prompt.
                 </p>
                 <textarea
                   id="template"
