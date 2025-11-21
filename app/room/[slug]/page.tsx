@@ -221,7 +221,11 @@ export default function RoomPage() {
               
               setGenerating(true);
               
-              const fullPrompt = `Using the selected child-like sketch as reference, ${prompt}. Preserve the composition; amplify shapes and rhythm; use vibrant colors; painterly style; high quality.`;
+              // Get template from localStorage or use default
+              const defaultTemplate = `Using the selected child-like sketch as reference, {prompt}. Preserve the composition; amplify shapes and rhythm; use vibrant colors; painterly style; high quality.`;
+              const storedTemplate = typeof window !== 'undefined' ? localStorage.getItem('image_generation_template') : null;
+              const template = storedTemplate || defaultTemplate;
+              const fullPrompt = template.replace('{prompt}', prompt);
               console.log('[🎨 IMAGE GEN] Full prompt:', fullPrompt);
               
               type FalGenResult = { data?: { images?: Array<{ url: string }> }; images?: Array<{ url: string }> };
@@ -463,43 +467,35 @@ export default function RoomPage() {
     for (const [id, meta] of Object.entries(peersRef.current)) {
       const c = smoothed.current[id] || cursors.current[id];
       if (!c) continue;
-      const isIdle = now - c.t > 3000;
-      ctx.globalAlpha = isIdle ? 0.55 : 1;
       
       // Get tool info
       const toolInfo = toolByKeyRef.current[id];
       const currentTool = toolInfo?.tool || 'cursor';
+      
+      // Only show cursor and name when tool is 'pen'
+      if (currentTool !== 'pen') continue;
+      
+      const isIdle = now - c.t > 3000;
+      ctx.globalAlpha = isIdle ? 0.55 : 1;
       const brushColor = toolInfo?.color || colorFromString(id);
       
       ctx.save();
       
-      // Draw cursor shape based on tool
-      if (currentTool === 'eraser') {
-        // Draw white circle for eraser (showing actual eraser size)
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(c.x, c.y, 24, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = brushColor;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      } else {
-        // Draw triangle for pen/cursor, with brush color
-        ctx.fillStyle = brushColor;
-        ctx.beginPath();
-        ctx.moveTo(c.x, c.y);
-        ctx.lineTo(c.x + 12, c.y + 4);
-        ctx.lineTo(c.x + 6, c.y + 12);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = "#fff";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
+      // Draw triangle for pen, with brush color
+      ctx.fillStyle = brushColor;
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y);
+      ctx.lineTo(c.x + 12, c.y + 4);
+      ctx.lineTo(c.x + 6, c.y + 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 1;
+      ctx.stroke();
       
       ctx.restore();
       
-      // Draw username and emoji in pill (always visible)
+      // Draw username in pill
       if (meta?.name) {
         ctx.save();
         ctx.font = "14px sans-serif";
@@ -727,12 +723,15 @@ export default function RoomPage() {
     if (!fixedGenerateAreaRef.current) return;
     try {
       setGenerating(true);
-      const prompt = `
+      // Get prompt from localStorage or use default
+      const defaultPrompt = `
       Analyze the provided child-like sketch and accurately infer its shapes, layout, and visual intention.
       Create a pixar style image inspired by this sketch. 
       Avoid realism entirely; keep it abstract, dynamic, and artful.
       High quality, gallery-level output.
       `;
+      const storedPrompt = typeof window !== 'undefined' ? localStorage.getItem('image_generation_prompt') : null;
+      const prompt = storedPrompt || defaultPrompt.trim();
       const rect = fixedGenerateAreaRef.current;
       const canvas = canvasRef.current!;
       const dpr = Math.max(1, window.devicePixelRatio || 1);
