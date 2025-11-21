@@ -8,21 +8,36 @@ type PortalsBackgroundProps = {
   audioLevel?: number;
 };
 
+type RGB = { r: number; g: number; b: number };
+
 type Portal = {
   radius: number;
-  thickness: number;
   speed: number;
   offset: number;
+  axisRatio: number;
+  rotation: number;
   baseScaleAmplitude: number;
   baseOpacityAmplitude: number;
   baseOpacity: number;
-  wobble: number;
-  color: string;
+  glow: number;
+  color: RGB;
 };
 
-const PALETTE = ['#7dd3fc', '#c084fc', '#f472b6', '#fcd34d', '#8b5cf6', '#67e8f9'];
+const BLUE_PALETTE = ['#0317d8', '#0526f0', '#0a3cff', '#1c58ff', '#3075ff', '#5a9cff'];
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const hexToRgb = (hex: string): RGB => {
+  const sanitized = hex.replace('#', '');
+  const value = parseInt(sanitized.length === 3 ? sanitized.repeat(2) : sanitized, 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+};
+
+const rgba = (color: RGB, alpha: number) => `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
 
 export function PortalsBackground({
   className = '',
@@ -30,7 +45,6 @@ export function PortalsBackground({
   audioLevel = 0,
 }: PortalsBackgroundProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const pointerRef = useRef({ x: 0.5, y: 0.5, strength: 0 });
   const audioRef = useRef(audioLevel);
   const sizeRef = useRef({ width: 0, height: 0, dpr: 1 });
 
@@ -49,16 +63,18 @@ export function PortalsBackground({
 
     const portals: Portal[] = Array.from({ length: portalCount }, (_, index) => {
       const t = (index + 1) / portalCount;
+      const color = hexToRgb(BLUE_PALETTE[index % BLUE_PALETTE.length]);
       return {
-        radius: 160 + t * 360,
-        thickness: 1.5 + t * 4,
-        speed: 0.3 + t * 0.35,
+        radius: 140 + t * 360,
+        speed: 0.25 + t * 0.3,
         offset: Math.random() * Math.PI * 2,
-        baseScaleAmplitude: 0.03 + t * 0.04,
-        baseOpacityAmplitude: 0.08 + (1 - t) * 0.08,
-        baseOpacity: 0.12 + (1 - t) * 0.25,
-        wobble: 0.15 + t * 0.45,
-        color: PALETTE[index % PALETTE.length],
+        axisRatio: 0.45 + (1 - t) * 0.35,
+        rotation: -0.25 + t * 0.2,
+        baseScaleAmplitude: 0.02 + t * 0.05,
+        baseOpacityAmplitude: 0.05 + (1 - t) * 0.05,
+        baseOpacity: 0.25 + (1 - t) * 0.18,
+        glow: 60 + t * 90,
+        color,
       };
     });
 
@@ -73,67 +89,61 @@ export function PortalsBackground({
     resize();
     window.addEventListener('resize', resize);
 
-    const handlePointerMove = (event: PointerEvent) => {
-      pointerRef.current.x = event.clientX / window.innerWidth;
-      pointerRef.current.y = event.clientY / window.innerHeight;
-      pointerRef.current.strength = 1;
-    };
-
-    const handlePointerLeave = () => {
-      pointerRef.current.strength = 0;
-    };
-
-    window.addEventListener('pointermove', handlePointerMove, { passive: true });
-    window.addEventListener('pointerleave', handlePointerLeave);
-
-    const drawPortal = (portal: Portal, time: number, pointerInfluence: number, audioInfluence: number) => {
+    const drawPortal = (
+      portal: Portal,
+      time: number,
+      audioInfluence: number,
+    ) => {
       const { width, height } = sizeRef.current;
       const timeOffset = time * 0.001 * portal.speed + portal.offset;
 
       const scaleAmplitude =
-        portal.baseScaleAmplitude + pointerInfluence * 0.06 + audioInfluence * 0.08;
+        portal.baseScaleAmplitude + audioInfluence * 0.08;
       const opacityAmplitude =
-        portal.baseOpacityAmplitude + pointerInfluence * 0.1 + audioInfluence * 0.12;
+        portal.baseOpacityAmplitude + audioInfluence * 0.12;
 
-      const scale = 1 + Math.sin(timeOffset) * scaleAmplitude;
+      const baseScale = 1 + Math.sin(timeOffset) * scaleAmplitude;
+      const axisRatio = portal.axisRatio + Math.cos(timeOffset) * 0.02;
+
+      const scaleX = baseScale;
+      const scaleY = baseScale * clamp(axisRatio, 0.2, 1.1);
+
       const opacity = clamp(
         portal.baseOpacity + Math.cos(timeOffset) * opacityAmplitude,
-        0.05,
-        0.9,
+        0.08,
+        0.95,
       );
+
+      const centerX = width * 0.65;
+      const centerY = height * 0.35;
 
       ctx.save();
+      ctx.translate(centerX, centerY);
 
-      ctx.translate(width / 2, height / 2);
-      ctx.rotate((pointerRef.current.x - 0.5) * portal.wobble * pointerInfluence);
-      ctx.scale(
-        scale + (pointerRef.current.x - 0.5) * pointerInfluence * 0.04,
-        scale + (pointerRef.current.y - 0.5) * pointerInfluence * 0.04,
+      const rotation = portal.rotation + Math.sin(timeOffset) * 0.04;
+
+      ctx.rotate(rotation);
+      ctx.scale(scaleX, scaleY);
+
+      const gradient = ctx.createRadialGradient(
+        0,
+        0,
+        portal.radius * 0.15,
+        0,
+        0,
+        portal.radius * 1.1,
       );
+      gradient.addColorStop(0, 'rgba(255,255,255,0.95)');
+      gradient.addColorStop(0.5, rgba(portal.color, 0.85));
+      gradient.addColorStop(1, rgba(portal.color, 0));
 
       ctx.beginPath();
-      ctx.strokeStyle = portal.color;
-      ctx.lineWidth = portal.thickness;
-      ctx.globalAlpha = opacity;
-      ctx.shadowBlur = 40;
-      ctx.shadowColor = portal.color;
       ctx.arc(0, 0, portal.radius, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // draw sparkles
-      const sparkleCount = 6;
-      for (let i = 0; i < sparkleCount; i += 1) {
-        const angle = (i / sparkleCount) * Math.PI * 2 + timeOffset * 0.6;
-        const dist = portal.radius * (0.7 + ((i % 3) * 0.08));
-        const sparkleX = Math.cos(angle) * dist;
-        const sparkleY = Math.sin(angle) * dist;
-        ctx.beginPath();
-        ctx.fillStyle = portal.color;
-        ctx.globalAlpha = opacity * 0.8;
-        ctx.arc(sparkleX, sparkleY, 2 + Math.sin(timeOffset + i) * 1.2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
+      ctx.fillStyle = gradient;
+      ctx.globalAlpha = opacity;
+      ctx.shadowBlur = portal.glow;
+      ctx.shadowColor = rgba(portal.color, 0.8);
+      ctx.fill();
       ctx.restore();
     };
 
@@ -148,12 +158,9 @@ export function PortalsBackground({
       ctx.clearRect(0, 0, width, height);
       ctx.globalCompositeOperation = 'lighter';
 
-      const pointerInfluence = pointerRef.current.strength;
-      pointerRef.current.strength = Math.max(pointerRef.current.strength * 0.96 - 0.001, 0);
-
       const audioInfluence = clamp(audioRef.current, 0, 1);
 
-      portals.forEach((portal) => drawPortal(portal, time, pointerInfluence, audioInfluence));
+      portals.forEach((portal) => drawPortal(portal, time, audioInfluence));
 
       ctx.globalCompositeOperation = 'source-over';
 
@@ -165,8 +172,6 @@ export function PortalsBackground({
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', resize);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerleave', handlePointerLeave);
     };
   }, [portalCount]);
 
@@ -175,9 +180,10 @@ export function PortalsBackground({
       className={`absolute inset-0 pointer-events-none overflow-hidden ${className}`}
       aria-hidden="true"
     >
-      <canvas ref={canvasRef} className="h-full w-full" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(5,8,25,0.35),_rgba(2,3,10,0.85))]" />
-      <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-white via-white/30 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-br from-[#000a3a] via-[#001981] to-[#0132ff]" />
+      <canvas ref={canvasRef} className="relative h-full w-full" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_65%_35%,rgba(255,255,255,0.45),rgba(1,18,94,0)_55%)]" />
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#000a32]/50" />
     </div>
   );
 }

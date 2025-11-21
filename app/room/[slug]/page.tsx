@@ -3,11 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { browserClient } from "@/lib/supabase/client";
-import ShareLink from "@/components/ShareLink";
 import { fal } from "@fal-ai/client";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { Conversation } from "@elevenlabs/client";
-import { Mic, Pencil, Eraser, MousePointer } from "lucide-react";
+import { Mic, Pencil, Eraser, Download } from "lucide-react";
 
 type PeerMeta = { name: string; avatar: string; color: string };
 type Cursor = { x: number; y: number; t: number };
@@ -25,15 +24,27 @@ export default function RoomPage() {
   const smoothed = useRef<Record<string, Cursor>>({});
   const [self, setSelf] = useState<{ id: string; name: string; avatar: string } | null>(null);
   const [connId, setConnId] = useState<string>("");
-  const [shareUrl, setShareUrl] = useState<string>("");
   const channelRef = useRef<RealtimeChannel | null>(null);
   const toolByKeyRef = useRef<Record<string, { tool: 'cursor' | 'pen' | 'eraser' | 'select'; color: string }>>({});
   const selectionActiveRef = useRef<boolean>(false);
   const selectionStartRef = useRef<Point | null>(null);
   const selectionRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   const selectionByKeyRef = useRef<Record<string, { x: number; y: number; w: number; h: number } | null>>({});
-  const [showGenerate, setShowGenerate] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [generatedImage, setGeneratedImage] = useState<ImageItem | null>(null);
+  
+  // Predefined colors for color picker
+  const penColors = [
+    "#ef4444", // red
+    "#3b82f6", // blue
+    "#10b981", // green
+    "#eab308", // yellow
+    "#a855f7", // purple
+    "#000000", // black
+  ];
+
+  // Default selected color - will be updated when color is computed
+  const [selectedColor, setSelectedColor] = useState<string>("#3b82f6");
   
   // Configure fal client to use proxy
   fal.config({ proxyUrl: "/api/fal/proxy" });
@@ -42,6 +53,8 @@ export default function RoomPage() {
   const currentStrokeRef = useRef<Stroke | null>(null);
   const draggingImageIdRef = useRef<string | null>(null);
   const dragOffsetRef = useRef<Point>({ x: 0, y: 0 });
+  const fixedGenerateAreaRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const selectedColorRef = useRef<string>("");
   const [tool, setTool] = useState<"cursor" | "pen" | "image" | "eraser" | "select">("cursor");
   const brushWidthRef = useRef<number>(3);
   const activeStrokeIndexByIdRef = useRef<Record<string, number>>({});
@@ -162,21 +175,29 @@ export default function RoomPage() {
             }
             console.log('[🎨 IMAGE GEN] ✓ Prompt:', prompt);
             
-            if (!selectionRectRef.current) {
-              console.log('[🎨 IMAGE GEN] ❌ No selection area');
-              return 'Please select an area on the canvas first using the Select Area tool.';
+            if (!fixedGenerateAreaRef.current) {
+              console.log('[🎨 IMAGE GEN] ❌ No fixed area available');
+              return 'Fixed generate area not initialized. Please refresh the page.';
             }
-            console.log('[🎨 IMAGE GEN] ✓ Selection rect:', selectionRectRef.current);
+            console.log('[🎨 IMAGE GEN] ✓ Fixed area rect:', fixedGenerateAreaRef.current);
             
             try {
-              const rect = selectionRectRef.current;
+              const rect = fixedGenerateAreaRef.current;
               const canvas = canvasRef.current!;
               console.log('[🎨 IMAGE GEN] Canvas size:', canvas.width, 'x', canvas.height);
+              
+              // Remove existing image in fixed area if any
+              imagesRef.current = imagesRef.current.filter(img => {
+                const imgCenterX = img.x + img.w / 2;
+                const imgCenterY = img.y + img.h / 2;
+                return !(imgCenterX >= rect.x && imgCenterX <= rect.x + rect.w &&
+                         imgCenterY >= rect.y && imgCenterY <= rect.y + rect.h);
+              });
               
               const dpr = Math.max(1, window.devicePixelRatio || 1);
               console.log('[🎨 IMAGE GEN] DPR:', dpr);
               
-              // Crop selected area
+              // Crop fixed area
               const src = document.createElement('canvas');
               const sctx = src.getContext('2d')!;
               const sw = Math.max(1, Math.floor(rect.w * dpr));
@@ -218,10 +239,8 @@ export default function RoomPage() {
                 const item: ImageItem = { id: crypto.randomUUID(), url, x: rect.x, y: rect.y, w: rect.w, h: rect.h };
                 const loaded = await loadImageItem(item);
                 imagesRef.current = [...imagesRef.current, loaded];
+                setGeneratedImage(loaded);
                 channelRef.current?.send({ type: 'broadcast', event: 'image-add', payload: item });
-                selectionByKeyRef.current[connId] = null;
-                selectionRectRef.current = null;
-                setShowGenerate(false);
                 setGenerating(false);
                 console.log('[🎨 IMAGE GEN] ✅ Complete!');
                 return 'Image generated successfully! It should appear on the canvas now.';
@@ -284,7 +303,6 @@ export default function RoomPage() {
   };
 
   useEffect(() => {
-    try { setShareUrl(`${window.location.origin}/room/${slug}/join`); } catch {}
     // create a stable per-tab connection id, used as presence key and cursor map key
     try {
       const key = "cursor_conn_id";
@@ -307,9 +325,17 @@ export default function RoomPage() {
     return key ? colorFromString(key) : "#3b82f6";
   }, [self, connId]);
 
+  // Update selected color to match cursor color when it changes
+  useEffect(() => {
+    if (color) {
+      selectedColorRef.current = color;
+      setSelectedColor(color);
+    }
+  }, [color]);
+
   const broadcastToolState = (nextTool: 'cursor' | 'pen' | 'eraser' | 'select') => {
     if (!connId) return;
-    const currentColor = toolByKeyRef.current[connId]?.color || color;
+    const currentColor = toolByKeyRef.current[connId]?.color || selectedColorRef.current || color;
     toolByKeyRef.current[connId] = { tool: nextTool, color: currentColor };
     channelRef.current?.send({ type: 'broadcast', event: 'tool', payload: { key: connId, tool: nextTool, color: currentColor } });
   };
@@ -327,13 +353,15 @@ export default function RoomPage() {
     }
   };
 
-  const handleSelectToggle = () => {
-    if (tool === 'select') {
-      setActiveTool('cursor');
-    } else {
-      setActiveTool('select');
-    }
+  const handleColorSelect = (color: string) => {
+    setSelectedColor(color);
+    selectedColorRef.current = color;
+    if (!connId) return;
+    const currentTool = tool === 'pen' ? 'pen' : (toolByKeyRef.current[connId]?.tool || 'cursor');
+    toolByKeyRef.current[connId] = { tool: currentTool, color };
+    channelRef.current?.send({ type: 'broadcast', event: 'tool', payload: { key: connId, tool: currentTool, color } });
   };
+
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -345,7 +373,16 @@ export default function RoomPage() {
     const channel = supa.channel(`room:${slug}`, { config: { presence: { key: connId } } });
     channelRef.current = channel;
 
-    const onResize = () => resizeCanvas(canvas);
+    const onResize = () => {
+      resizeCanvas(canvas);
+      // Update fixed generate area on resize - make it a larger rectangle
+      const rect = canvas.getBoundingClientRect();
+      const areaWidth = Math.min(600, rect.width * 0.5);
+      const areaHeight = Math.min(450, rect.height * 0.5);
+      const areaX = (rect.width - areaWidth) / 2;
+      const areaY = (rect.height - areaHeight) / 2;
+      fixedGenerateAreaRef.current = { x: areaX, y: areaY, w: areaWidth, h: areaHeight };
+    };
     onResize();
     window.addEventListener("resize", onResize);
 
@@ -353,6 +390,26 @@ export default function RoomPage() {
       const w = canvas.width;
       const h = canvas.height;
       ctx.clearRect(0, 0, w, h);
+      
+      // Draw fixed generate area with dotted border (only if no image in that area)
+      const fixedArea = fixedGenerateAreaRef.current;
+      if (fixedArea) {
+        const hasImageInArea = imagesRef.current.some(img => {
+          const imgCenterX = img.x + img.w / 2;
+          const imgCenterY = img.y + img.h / 2;
+          return imgCenterX >= fixedArea.x && imgCenterX <= fixedArea.x + fixedArea.w &&
+                 imgCenterY >= fixedArea.y && imgCenterY <= fixedArea.y + fixedArea.h;
+        });
+        
+        if (!hasImageInArea) {
+          ctx.save();
+          ctx.setLineDash([6, 6]);
+          ctx.strokeStyle = '#2563eb';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(fixedArea.x, fixedArea.y, fixedArea.w, fixedArea.h);
+          ctx.restore();
+        }
+      }
       // strokes first
       ctx.save();
       ctx.lineJoin = 'round';
@@ -539,7 +596,7 @@ export default function RoomPage() {
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       if (tool === "pen") {
-        const currentColor = toolByKeyRef.current[connId]?.color || color;
+        const currentColor = toolByKeyRef.current[connId]?.color || selectedColorRef.current || color;
         const currentWidth = brushWidthRef.current;
         const stroke: Stroke = { id: crypto.randomUUID(), points: [{ x, y }], color: currentColor, width: currentWidth, userId: self?.id || connId };
         currentStrokeRef.current = stroke;
@@ -577,7 +634,6 @@ export default function RoomPage() {
         selectionActiveRef.current = false;
         selectionStartRef.current = null;
         channelRef.current?.send({ type: 'broadcast', event: 'selection-end', payload: { key: connId } });
-        if (selectionRectRef.current) setShowGenerate(true);
       }
       if (tool === "cursor" && draggingImageIdRef.current) {
         const id = draggingImageIdRef.current;
@@ -667,96 +723,130 @@ export default function RoomPage() {
     };
   }, [slug, self, color, tool, connId]);
 
+  const handleGenerate = async () => {
+    if (!fixedGenerateAreaRef.current) return;
+    try {
+      setGenerating(true);
+      const prompt = `
+      Analyze the provided child-like sketch and accurately infer its shapes, layout, and visual intention.
+      Create a pixar style image inspired by this sketch. 
+      Avoid realism entirely; keep it abstract, dynamic, and artful.
+      High quality, gallery-level output.
+      `;
+      const rect = fixedGenerateAreaRef.current;
+      const canvas = canvasRef.current!;
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      
+      // Remove existing image in fixed area if any
+      imagesRef.current = imagesRef.current.filter(img => {
+        const imgCenterX = img.x + img.w / 2;
+        const imgCenterY = img.y + img.h / 2;
+        return !(imgCenterX >= rect.x && imgCenterX <= rect.x + rect.w &&
+                 imgCenterY >= rect.y && imgCenterY <= rect.y + rect.h);
+      });
+      
+      // Crop fixed area from the canvas
+      const src = document.createElement('canvas');
+      const sctx = src.getContext('2d')!;
+      const sw = Math.max(1, Math.floor(rect.w * dpr));
+      const sh = Math.max(1, Math.floor(rect.h * dpr));
+      src.width = sw;
+      src.height = sh;
+      sctx.fillStyle = '#ffffff';
+      sctx.fillRect(0, 0, sw, sh);
+      sctx.drawImage(
+        canvas,
+        Math.floor(rect.x * dpr),
+        Math.floor(rect.y * dpr),
+        sw,
+        sh,
+        0,
+        0,
+        sw,
+        sh
+      );
+      
+      // Downscale to 512x512 for faster i2i
+      const sized = document.createElement('canvas');
+      const szctx = sized.getContext('2d')!;
+      sized.width = 512; sized.height = 512;
+      szctx.imageSmoothingEnabled = true;
+      szctx.imageSmoothingQuality = 'high';
+      szctx.drawImage(src, 0, 0, sized.width, sized.height);
+      const dataUrl = sized.toDataURL('image/png');
+      await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl, contentType: 'image/png' }) });
+      
+      type FalGenResult = { data?: { images?: Array<{ url: string }> }; images?: Array<{ url: string }> };
+      console.log('[FAL] Calling fal-ai/nano-banana/edit...');
+      const result = await fal.subscribe('fal-ai/nano-banana/edit', {
+        input: { prompt, image_urls: [dataUrl], sync_mode: true },
+        pollInterval: 1500,
+        logs: false,
+      }) as FalGenResult;
+      console.log('[FAL] Result:', result);
+      const url = result?.data?.images?.[0]?.url || result?.images?.[0]?.url;
+      console.log('[FAL] Image URL:', url);
+      if (!url) {
+        console.error('[FAL] No image URL returned');
+        return;
+      }
+      
+      // Create image item and load it
+      const item: ImageItem = { id: crypto.randomUUID(), url, x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+      console.log('[FAL] Loading image item:', item);
+      const loaded = await loadImageItem(item);
+      console.log('[FAL] Image loaded:', loaded);
+      imagesRef.current = [...imagesRef.current, loaded];
+      setGeneratedImage(loaded);
+      channelRef.current?.send({ type: 'broadcast', event: 'image-add', payload: item });
+    } catch (error) {
+      console.error('[FAL] Error generating image:', error);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+
+  const handleDownload = async () => {
+    if (!generatedImage || !generatedImage.img) return;
+    
+    try {
+      // Create a canvas to convert to JPG
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d')!;
+      canvas.width = generatedImage.img.width;
+      canvas.height = generatedImage.img.height;
+      
+      // Draw white background first
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw the image
+      ctx.drawImage(generatedImage.img, 0, 0);
+      
+      // Convert to blob as JPG
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `generated-image-${Date.now()}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 'image/jpeg', 0.95);
+    } catch (error) {
+      console.error('[DOWNLOAD] Error downloading image:', error);
+    }
+  };
+
   return (
     <main className="min-h-screen">
       <div className="fixed inset-0">
-        <canvas ref={canvasRef} className="w-full h-full block cursor-none" />
+        <canvas ref={canvasRef} className={`w-full h-full block ${tool === 'pen' || tool === 'eraser' ? 'cursor-none' : ''}`} />
       </div>
-      {showGenerate && selectionRectRef.current && (
-        <div className="fixed z-20" style={{ left: selectionRectRef.current.x + selectionRectRef.current.w + 8, top: selectionRectRef.current.y }}>
-          <button
-            disabled={generating}
-            onClick={async () => {
-              if (!selectionRectRef.current) return;
-              try {
-                setGenerating(true);
-                const prompt = `
-                Analyze the provided child-like sketch and accurately infer its shapes, layout, and visual intention.
-                Create a pixar style image inspired by this sketch. 
-                Avoid realism entirely; keep it abstract, dynamic, and artful.
-                High quality, gallery-level output.
-                `;
-                // Crop selection from the canvas (respect DPR), with solid background to avoid transparent->black previews
-                const rect = selectionRectRef.current;
-                const canvas = canvasRef.current!;
-                const dpr = Math.max(1, window.devicePixelRatio || 1);
-                const src = document.createElement('canvas');
-                const sctx = src.getContext('2d')!;
-                const sw = Math.max(1, Math.floor(rect.w * dpr));
-                const sh = Math.max(1, Math.floor(rect.h * dpr));
-                src.width = sw;
-                src.height = sh;
-                // Optional: paint a white background to prevent viewer black background for transparent areas
-                sctx.fillStyle = '#ffffff';
-                sctx.fillRect(0, 0, sw, sh);
-                // drawImage: sx,sy in device pixels
-                sctx.drawImage(
-                  canvas,
-                  Math.floor(rect.x * dpr),
-                  Math.floor(rect.y * dpr),
-                  sw,
-                  sh,
-                  0,
-                  0,
-                  sw,
-                  sh
-                );
-                // Downscale to 512x512 for faster i2i
-                const sized = document.createElement('canvas');
-                const szctx = sized.getContext('2d')!;
-                sized.width = 512; sized.height = 512;
-                szctx.imageSmoothingEnabled = true;
-                szctx.imageSmoothingQuality = 'high';
-                szctx.drawImage(src, 0, 0, sized.width, sized.height);
-                const dataUrl = sized.toDataURL('image/png');
-                await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dataUrl, contentType: 'image/png' }) });
-                type FalGenResult = { data?: { images?: Array<{ url: string }> }; images?: Array<{ url: string }> };
-                // Prefer image-to-image nano-banana edit with inline base64
-                console.log('[FAL] Calling fal-ai/nano-banana/edit...');
-                const result = await fal.subscribe('fal-ai/nano-banana/edit', {
-                  input: { prompt, image_urls: [dataUrl], sync_mode: true },
-                  pollInterval: 1500,
-                  logs: false,
-                }) as FalGenResult;
-                console.log('[FAL] Result:', result);
-                const url = result?.data?.images?.[0]?.url || result?.images?.[0]?.url;
-                console.log('[FAL] Image URL:', url);
-                if (!url) {
-                  console.error('[FAL] No image URL returned');
-                  return;
-                }
-                // Create image item and load it
-                const item: ImageItem = { id: crypto.randomUUID(), url, x: rect.x, y: rect.y, w: rect.w, h: rect.h };
-                console.log('[FAL] Loading image item:', item);
-                const loaded = await loadImageItem(item);
-                console.log('[FAL] Image loaded:', loaded, 'img:', loaded.img, 'img.complete:', loaded.img?.complete, 'img.width:', loaded.img?.width, 'img.height:', loaded.img?.height);
-                imagesRef.current = [...imagesRef.current, loaded];
-                console.log('[FAL] Added to imagesRef, total images:', imagesRef.current.length);
-                channelRef.current?.send({ type: 'broadcast', event: 'image-add', payload: item });
-                // Clear local selection overlay after successful placement
-                selectionByKeyRef.current[connId] = null;
-                selectionRectRef.current = null;
-                setShowGenerate(false);
-              } finally {
-                setGenerating(false);
-              }
-            }}
-            className="px-2 py-1 rounded-md text-xs border border-gray-200 bg-white shadow"
-          >
-            {generating ? 'Generating…' : 'Generate'}
-          </button>
-        </div>
-      )}
       
       {elevenLabsActive && (
         <div className="fixed bottom-4 right-4 z-10">
@@ -767,23 +857,11 @@ export default function RoomPage() {
         </div>
       )}
 
-      <div className="fixed top-3 left-1/2 -translate-x-1/2 z-10 w-[min(720px,92vw)]">
+      <div className="fixed top-3 left-1/2 -translate-x-1/2 z-10">
         <div className="rounded-xl border border-gray-200 bg-white/90 backdrop-blur px-4 py-2 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex-1">
-              <ShareLink url={shareUrl} />
-            </div>
+          <div className="flex items-center justify-end gap-3">
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-white px-2 py-1.5">
-                <button
-                  onClick={handleSelectToggle}
-                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium transition ${
-                    tool === 'select' ? 'bg-black text-white' : 'text-gray-700 hover:bg-gray-100'
-                  }`}
-                >
-                  <MousePointer className="w-4 h-4" />
-                  Select
-                </button>
                 <button
                   onClick={() => handleDrawingToolToggle('pen')}
                   className={`flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium transition ${
@@ -793,6 +871,28 @@ export default function RoomPage() {
                   <Pencil className="w-4 h-4" />
                   Pencil
                 </button>
+                {/* Color picker */}
+                <div className="flex items-center gap-1.5 pl-2 border-l border-gray-200">
+                  {penColors.map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => {
+                        setSelectedColor(color);
+                        handleColorSelect(color);
+                        if (tool !== 'pen') {
+                          setActiveTool('pen');
+                        }
+                      }}
+                      className={`w-6 h-6 rounded-full border-2 transition-all ${
+                        selectedColor === color
+                          ? 'border-gray-800 scale-110'
+                          : 'border-gray-300 hover:border-gray-500 hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: color }}
+                      title={`Select ${color}`}
+                    />
+                  ))}
+                </div>
                 <button
                   onClick={() => handleDrawingToolToggle('eraser')}
                   className={`flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium transition ${
@@ -804,6 +904,22 @@ export default function RoomPage() {
                 </button>
               </div>
               <button
+                onClick={handleGenerate}
+                disabled={generating || !fixedGenerateAreaRef.current}
+                className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium border border-gray-200 text-gray-800 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {generating ? 'Generating…' : 'Generate'}
+              </button>
+              {generatedImage && (
+                <button
+                  onClick={handleDownload}
+                  className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium border border-gray-200 text-gray-800 hover:bg-gray-100 transition"
+                >
+                  <Download className="w-4 h-4" />
+                  Download Image
+                </button>
+              )}
+              <button
                 onClick={() => {
                   if (elevenLabsActive) {
                     stopElevenLabs();
@@ -811,7 +927,7 @@ export default function RoomPage() {
                     startElevenLabs();
                   }
                 }}
-                className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium border transition ${
+                className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium border whitespace-nowrap transition ${
                   elevenLabsActive ? 'bg-red-50 text-red-700 border-red-200' : 'border-gray-200 text-gray-800 hover:bg-gray-100'
                 }`}
                 title="Toggle voice mode"

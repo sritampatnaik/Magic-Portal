@@ -81,11 +81,6 @@ export default function JoinPage() {
               </div>
             </div>
           </div>
-          <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-100">
-            <p className="text-xs text-blue-800">
-              <strong>💡 Tip:</strong> Everything works great with a mouse or trackpad—no webcam gestures required.
-            </p>
-          </div>
         </div>
       </div>
     </main>
