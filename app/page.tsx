@@ -11,18 +11,10 @@ export default function Home() {
       <PortalsBackground />
       <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6 py-16">
         <div className="w-full max-w-xl space-y-8 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.24em] text-white/70">
-            Instant Room · Shared Whiteboard
-          </div>
           <div className="space-y-4">
             <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">
-              Portals
+              Welcome to Portals
             </h1>
-            <p className="text-base leading-relaxed text-white/70">
-              Spin up a collaborative canvas in one tap. We orchestrate audio,
-              video, and AI so your team can sketch, debate, and prototype in
-              real time.
-            </p>
           </div>
           <div className="flex flex-col items-center gap-4">
             <button
@@ -43,9 +35,6 @@ export default function Home() {
             >
               {loading ? "Creating…" : "Create Whiteboard"}
             </button>
-            <p className="text-xs uppercase tracking-[0.35em] text-white/50">
-              No download · Live in seconds
-            </p>
           </div>
         </div>
       </div>

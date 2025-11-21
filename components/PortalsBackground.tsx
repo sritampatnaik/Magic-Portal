@@ -181,7 +181,6 @@ export function PortalsBackground({
       aria-hidden="true"
     >
       <div className="absolute inset-0 bg-gradient-to-br from-[#000a3a] via-[#001981] to-[#0132ff]" />
-      <canvas ref={canvasRef} className="relative h-full w-full" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_65%_35%,rgba(255,255,255,0.45),rgba(1,18,94,0)_55%)]" />
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#000a32]/50" />
     </div>

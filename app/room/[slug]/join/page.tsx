@@ -2,7 +2,6 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import AvatarPicker from "@/components/AvatarPicker";
 
 export default function JoinPage() {
   const params = useParams<{ slug: string }>();
@@ -25,7 +24,7 @@ export default function JoinPage() {
 
   return (
     <main className="min-h-screen max-w-xl mx-auto p-8">
-      <h1 className="text-2xl font-semibold mb-6">Choose your name and avatar</h1>
+      <h1 className="text-2xl font-semibold mb-6">Choose your name</h1>
       <div className="space-y-6">
         <div>
           <label className="block text-sm font-medium mb-2">Display name</label>
@@ -35,10 +34,6 @@ export default function JoinPage() {
             placeholder="e.g. Alex"
             className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-2">Avatar</label>
-          <AvatarPicker value={avatar} onChange={setAvatar} />
         </div>
         <div>
           <button
@@ -53,34 +48,6 @@ export default function JoinPage() {
           >
             Enter room
           </button>
-        </div>
-        
-        {/* Toolbar Tips */}
-        <div className="mt-8 pt-6 border-t border-gray-200">
-          <h2 className="text-lg font-semibold mb-4">🎨 Toolbar Tips</h2>
-          <div className="space-y-3">
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
-              <span className="text-2xl">✏️</span>
-              <div>
-                <p className="font-medium text-sm">Pencil & Eraser</p>
-                <p className="text-xs text-gray-600">Use the top toolbar to switch between drawing and erasing. Click a tool again to return to the cursor.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
-              <span className="text-2xl">🟦</span>
-              <div>
-                <p className="font-medium text-sm">Select Area</p>
-                <p className="text-xs text-gray-600">Choose “Select” to drag a box for AI image generation, then click Generate next to your selection.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 p-3 rounded-lg bg-gray-50">
-              <span className="text-2xl">🎤</span>
-              <div>
-                <p className="font-medium text-sm">Voice Mode</p>
-                <p className="text-xs text-gray-600">Toggle the Voice button to talk hands-free—ask for color changes, brush sizes, or image generation prompts.</p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </main>
